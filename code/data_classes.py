@@ -2,7 +2,7 @@
 # Code written by Oscar Beijbom, 2018.
 # Licensed under the Creative Commons [see licence.txt]
 
-from __future__ import annotations
+# from __future__ import annotations
 import torch
 import numpy as np
 from pyquaternion import Quaternion

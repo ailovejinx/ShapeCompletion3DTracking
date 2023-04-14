@@ -100,8 +100,8 @@ def main(args):
             pin_memory=True)
 
     # define criterions
-    criterion_tracking = torch.nn.MSELoss()
-    criterion_completion = ChamferLoss()
+    criterion_tracking = torch.nn.MSELoss() # 余弦相似度+距离的阈值函数，外面再套一个MSELoss
+    criterion_completion = ChamferLoss() # 倒角距离，衡量3D点云数据的Loss
 
     # define optimizer
     optimizer = torch.optim.Adam(
@@ -116,7 +116,7 @@ def main(args):
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 'min', verbose=True, patience=3)
 
-    if args.train_model:
+    if args.train_model:    # 默认的max_epochs=100
         trainer(
             dataloader_Training,
             dataloader_Validation,

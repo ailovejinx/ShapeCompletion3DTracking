@@ -16,8 +16,8 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         if verbose:
             print('Building Encoder')
-        n_filters.append(bneck_size)
-        n_layers = len(n_filters)
+        n_filters.append(bneck_size)    # 前两层是[Nx64, Nx128]，append最后一层[NxK]，K就是bneck_size
+        n_layers = len(n_filters)   # len=2+1=3
         self.input_size = input_size
         self.bneck_size = bneck_size
         self.conv = []

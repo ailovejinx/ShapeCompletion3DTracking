@@ -129,6 +129,8 @@ def train(dataloader,
 
             # compute output
             output, prev_PC_AE = model(this_PC, model_PC)
+            # output对应CosSim那一项，衡量的是经过encoder的当前帧PC和模型PC的余弦相似度
+            # 训练的时候loss缺了第二项？
 
             if lambda_completion < 1:
                 loss1 = criterion_tracking(output, target)

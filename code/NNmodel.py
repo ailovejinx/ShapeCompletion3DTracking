@@ -1,3 +1,12 @@
+"""
+  @ Author       : Ailovejinx
+  @ Date         : 2023-04-13 09:44:59
+  @ LastEditors  : Ailovejinx
+  @ LastEditTime : 2023-04-14 11:49:30
+  @ FilePath     : NNmodel.py
+  @ Description  : 
+  @ Copyright (c) 2023 by Ailovejinx, All Rights Reserved. 
+"""
 '''
 Created on February 4, 2017
 
@@ -21,7 +30,7 @@ class Model(nn.Module):
                  chkpt_file=None,
                  AE_chkpt_file=None):
         super(Model, self).__init__()
-        self.AE = PCAutoEncoder(bneck_size, AE_chkpt_file)
+        self.AE = PCAutoEncoder(bneck_size, AE_chkpt_file)  # AE: Auto Encoder
         self.input_size = self.AE.input_size
 
         self.bneck_size = bneck_size
@@ -37,8 +46,8 @@ class Model(nn.Module):
                   .format(chkpt_file, checkpoint['epoch']))
 
     def forward(self, this_PC, prev_PC):
-        X = self.AE.encode(this_PC)
-        Y = self.AE.encode(prev_PC)
+        X = self.AE.encode(this_PC) # 当前一帧点云
+        Y = self.AE.encode(prev_PC) # 前一帧点云
         Y_AE = self.AE.forward(prev_PC)
         Sim = F.cosine_similarity(X, Y, dim=1)
         # X = self.score(torch.cat((X,Y),dim=1)).squeeze()

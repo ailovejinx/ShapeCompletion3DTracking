@@ -25,10 +25,10 @@ def distanceBB_Gaussian(box1, box2, sigma=1):
 
 
 # IoU or Gaussian score map
-def getScoreGaussian(offset, sigma=1):
+def getScoreGaussian(offset, sigma=1):  # Tracking Loss里的第二项
     coeffs = [1, 1, 1 / 5]
-    dist = np.linalg.norm(np.multiply(offset, coeffs))
-    score = np.exp(-0.5 * (dist) / (sigma * sigma))
+    dist = np.linalg.norm(np.multiply(offset, coeffs))  #x和估计的x之间的L2距离
+    score = np.exp(-0.5 * (dist) / (sigma * sigma)) # \rho函数，软化距离阈值
     return torch.tensor([score])
 
 
