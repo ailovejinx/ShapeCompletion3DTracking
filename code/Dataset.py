@@ -15,6 +15,8 @@ from searchspace import KalmanFiltering
 
 import logging
 
+from comm import is_main_process
+
 
 class kittiDataset():
 
@@ -181,20 +183,20 @@ class SiameseTrain(SiameseDataset):
 
         self.num_candidates_perframe = 147
 
-        logging.info("preloading PC...")
+        if is_main_process(): logging.info("preloading PC...")
         self.list_of_PCs = [None] * len(self.list_of_anno)
         self.list_of_BBs = [None] * len(self.list_of_anno)
-        for index in tqdm(range(len(self.list_of_anno))):
+        for index in tqdm(range(len(self.list_of_anno)), disable=not is_main_process()):
             anno = self.list_of_anno[index]
             PC, box = self.getBBandPC(anno)
             new_PC = utils.cropPC(PC, box, offset=10)
             self.list_of_PCs[index] = new_PC
             self.list_of_BBs[index] = box
-        logging.info("PC preloaded!")
+        if is_main_process(): logging.info("PC preloaded!")
 
-        logging.info("preloading Model..")
+        if is_main_process(): logging.info("preloading Model..")
         self.model_PC = [None] * len(self.list_of_tracklet_anno)
-        for i in tqdm(range(len(self.list_of_tracklet_anno))):
+        for i in tqdm(range(len(self.list_of_tracklet_anno)), disable=not is_main_process()):
             list_of_anno = self.list_of_tracklet_anno[i]
             PCs = []
             BBs = []
@@ -210,7 +212,7 @@ class SiameseTrain(SiameseDataset):
             self.model_PC[i] = getModel(
                 PCs, BBs, offset=self.offset_BB, scale=self.scale_BB)
 
-        logging.info("Model preloaded!")
+        if is_main_process(): logging.info("Model preloaded!")
 
     def __getitem__(self, index):
         return self.getitem(index)

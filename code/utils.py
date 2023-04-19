@@ -91,14 +91,14 @@ def regularizePC(PC, model):
     if np.shape(PC)[1] > 2:
         if PC.shape[0] > 3:
             PC = PC[0:3, :]
-        if PC.shape[1] != model.input_size:
+        if PC.shape[1] != model.module.input_size:
             new_pts_idx = np.random.randint(
-                low=0, high=PC.shape[1], size=model.input_size, dtype=np.int64)
+                low=0, high=PC.shape[1], size=model.module.input_size, dtype=np.int64)
             PC = PC[:, new_pts_idx]
-        PC = PC.reshape(1, 3, model.input_size)
+        PC = PC.reshape(1, 3, model.module.input_size)
 
     else:
-        PC = np.zeros((1, 3, model.input_size))
+        PC = np.zeros((1, 3, model.module.input_size))
 
     return torch.from_numpy(PC).float()
 

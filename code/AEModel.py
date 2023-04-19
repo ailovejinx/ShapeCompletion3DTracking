@@ -1,8 +1,18 @@
+"""
+  @ Author       : Ailovejinx
+  @ Date         : 2023-04-13 09:44:59
+  @ LastEditors  : Ailovejinx
+  @ LastEditTime : 2023-04-15 14:42:27
+  @ FilePath     : AEModel.py
+  @ Description  : 
+  @ Copyright (c) 2023 by Ailovejinx, All Rights Reserved. 
+"""
 import torch
 import torch.nn as nn
 
 import PCEncoderDecoder
 
+from comm import is_main_process
 
 class AutoEncoder(nn.Module):
     def __init__(self, encoder, decoder, chkpt_file=None):
@@ -14,10 +24,10 @@ class AutoEncoder(nn.Module):
 
     def load_chkpt(self, chkpt_file=None):
         if(chkpt_file is not None and chkpt_file is not ""):
-            print("=> loading checkpoint '{}'".format(chkpt_file))
+            if is_main_process: print("=> loading checkpoint '{}'".format(chkpt_file))
             checkpoint = torch.load(chkpt_file)
             self.load_state_dict(checkpoint['state_dict'])
-            print("=> loaded checkpoint '{}' (epoch {})"
+            if is_main_process(): print("=> loaded checkpoint '{}' (epoch {})"
                   .format(chkpt_file, checkpoint['epoch']))
 
     def forward(self, X):

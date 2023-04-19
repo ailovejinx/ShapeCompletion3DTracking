@@ -19,9 +19,13 @@ from searchspace import KalmanFiltering, ParticleFiltering
 import torch.nn.functional as F
 # TODO: remove torch dependency
 
+from comm import is_main_process, all_gather
 
 def trainer(train_loader,
             val_loader,
+            train_sampler,
+            valid_sampler,
+            device,
             model,
             optimizer,
             scheduler,
@@ -30,8 +34,8 @@ def trainer(train_loader,
             max_epochs=100,
             model_name=None,
             lambda_completion=0):
-
-    logging.info("start training")
+    if is_main_process():
+        logging.info("start training")
 
     if model_name is None:
         model_name = "dummy_model"
@@ -42,12 +46,16 @@ def trainer(train_loader,
         best_model_path = os.path.join("..", "models", model_name,
                                        "model.pth.tar")
 
+        train_sampler.set_epoch(epoch)
+        valid_sampler.set_epoch(epoch)
+
         # train for one epoch
         loss_training = train(
             train_loader,
             model,
             criterion_tracking,
             criterion_completion,
+            device,
             optimizer,
             epoch + 1,
             lambda_completion=lambda_completion)
@@ -58,28 +66,29 @@ def trainer(train_loader,
             model,
             criterion_tracking,
             criterion_completion,
+            device,
             epoch + 1,
             lambda_completion=lambda_completion)
+        if is_main_process():
+            state = {
+                'epoch': epoch + 1,
+                'state_dict': model.state_dict(),
+                'best_loss': best_loss,
+                'optimizer': optimizer.state_dict(),
+            }
+            os.makedirs(os.path.join("..", "models", model_name), exist_ok=True)
+            torch.save(
+                state,
+                os.path.join("..", "models", model_name,
+                            "model_epoch" + str(epoch + 1) + ".pth.tar"))
 
-        state = {
-            'epoch': epoch + 1,
-            'state_dict': model.state_dict(),
-            'best_loss': best_loss,
-            'optimizer': optimizer.state_dict(),
-        }
-        os.makedirs(os.path.join("..", "models", model_name), exist_ok=True)
-        torch.save(
-            state,
-            os.path.join("..", "models", model_name,
-                         "model_epoch" + str(epoch + 1) + ".pth.tar"))
+            # remember best prec@1 and save checkpoint
+            is_better = loss_validation < best_loss
+            best_loss = min(loss_validation, best_loss)
 
-        # remember best prec@1 and save checkpoint
-        is_better = loss_validation < best_loss
-        best_loss = min(loss_validation, best_loss)
-
-        # test the model
-        if is_better:
-            torch.save(state, best_model_path)
+            # test the model
+            if is_better:
+                torch.save(state, best_model_path)
 
 
         # update the LR scheduler
@@ -104,6 +113,7 @@ def train(dataloader,
           model,
           criterion_tracking,
           criterion_completion,
+          device,
           optimizer,
           epoch,
           lambda_completion=0):
@@ -117,15 +127,16 @@ def train(dataloader,
     model.train()
 
     end = time.time()
-    with tqdm(enumerate(dataloader), total=len(dataloader), ncols=120)  as t:
+    with tqdm(enumerate(dataloader), total=len(dataloader), ncols=120, disable=not is_main_process())  as t:
         for i, (this_PC, prev_PC, model_PC, target) in t:
             # measure data loading time
             data_time.update(time.time() - end)
 
             this_PC = this_PC.cuda()
             prev_PC = prev_PC.cuda()
-            model_PC = model_PC.cuda()
-            target = target.float().cuda(non_blocking=True).view(-1)
+            model_PC = model_PC.to(device)
+            # target = target.float().cuda(non_blocking=True).view(-1)
+            target = target.float().to(device).view(-1)
 
             # compute output
             output, prev_PC_AE = model(this_PC, model_PC)
@@ -153,18 +164,19 @@ def train(dataloader,
             loss.backward()
             optimizer.step()
 
+            if is_main_process():
             # measure elapsed time
-            batch_time.update(time.time() - end)
-            end = time.time()
+                batch_time.update(time.time() - end)
+                end = time.time()
 
-            t.set_description(f'Train {epoch}: '
-                              f'Time {batch_time.avg:.3f}s '
-                              f'(it:{batch_time.val:.3f}s) '
-                              f'Data:{data_time.avg:.3f}s '
-                              f'(it:{data_time.val:.3f}s) '
-                              f'Loss {losses.avg:.4f} '
-                              f'(tr:{loss_tracking.avg:.4f}, '
-                              f'comp:{loss_completion.avg:.0f})')
+                t.set_description(f'Train {epoch}: '
+                                f'Time {batch_time.avg:.3f}s '
+                                f'(it:{batch_time.val:.3f}s) '
+                                f'Data:{data_time.avg:.3f}s '
+                                f'(it:{data_time.val:.3f}s) '
+                                f'Loss {losses.avg:.4f} '
+                                f'(tr:{loss_tracking.avg:.4f}, '
+                                f'comp:{loss_completion.avg:.0f})')
     return losses.avg
 
 
@@ -172,6 +184,7 @@ def validate(val_loader,
              model,
              criterion_tracking,
              criterion_completion,
+             device,
              epoch,
              lambda_completion=0):
     batch_time = AverageMeter()
@@ -182,7 +195,7 @@ def validate(val_loader,
 
     # switch to evaluate mode
     model.eval()
-    with tqdm(enumerate(val_loader), total=len(val_loader), ncols=120) as t:
+    with tqdm(enumerate(val_loader), total=len(val_loader), ncols=120, disable=not is_main_process()) as t:
 
         with torch.no_grad():
             end = time.time()
@@ -192,8 +205,9 @@ def validate(val_loader,
 
                 this_PC = this_PC.cuda()
                 prev_PC = prev_PC.cuda()
-                model_PC = model_PC.cuda()
-                target = target.cuda(non_blocking=True).view(-1)
+                model_PC = model_PC.to(device)
+                # target = target.cuda(non_blocking=True).view(-1)
+                target = target.to(device).view(-1)
 
                 output, prev_PC_AE = model(this_PC, model_PC)
 
@@ -213,18 +227,19 @@ def validate(val_loader,
                 loss_completion.update(loss2.item(), this_PC.size(0))
                 losses.update(loss.item(), this_PC.size(0))
 
-                # measure elapsed time
-                batch_time.update(time.time() - end)
-                end = time.time()
+                if is_main_process():
+                    # measure elapsed time
+                    batch_time.update(time.time() - end)
+                    end = time.time()
 
-                t.set_description(f'Valid {epoch}: '
-                              f'Time {batch_time.avg:.3f}s '
-                              f'(it:{batch_time.val:.3f}s) '
-                              f'Data:{data_time.avg:.3f}s '
-                              f'(it:{data_time.val:.3f}s) '
-                              f'Loss {losses.avg:.4f} '
-                              f'(tr:{loss_tracking.avg:.4f}, '
-                              f'comp:{loss_completion.avg:.0f})')
+                    t.set_description(f'Valid {epoch}: '
+                                f'Time {batch_time.avg:.3f}s '
+                                f'(it:{batch_time.val:.3f}s) '
+                                f'Data:{data_time.avg:.3f}s '
+                                f'(it:{data_time.val:.3f}s) '
+                                f'Loss {losses.avg:.4f} '
+                                f'(tr:{loss_tracking.avg:.4f}, '
+                                f'comp:{loss_completion.avg:.0f})')
 
     return losses.avg
 

@@ -8,6 +8,8 @@ import torch
 import torch.cuda
 import torch.optim
 import torch.utils.data
+import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
 
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
@@ -17,6 +19,9 @@ from Dataset import SiameseTrain, SiameseTest
 from PCLosses import ChamferLoss
 from metrics import AverageMeter
 import numpy as np
+
+
+from comm import is_main_process
 
 # for reproducibility
 torch.manual_seed(0)
@@ -35,8 +40,12 @@ def main(args):
     else:
         chkpt_file = None
 
+    device = torch.device("cuda", args.local_rank)
     model = Model(args.bneck_size, AE_chkpt_file=args.finetune, chkpt_file=chkpt_file).cuda()
-    logging.info(model)
+    model = model.to(device)
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank,find_unused_parameters=True)
+    if is_main_process(): logging.info(model)
 
     split_train = "Train"
     split_valid = "Valid"
@@ -57,11 +66,14 @@ def main(args):
             sigma_Gaussian=args.sigma_Gaussian,
             offset_BB=args.offset_BB,
             scale_BB=args.scale_BB)
+        
+        train_sampler = DistributedSampler(dataset_Training)
 
         dataloader_Training = torch.utils.data.DataLoader(
             dataset_Training,
+            sampler=train_sampler,  # 分布式sampler
             batch_size=args.batch_size,
-            shuffle=True,
+            shuffle=False,
             num_workers=args.max_num_worker,
             pin_memory=True)
 
@@ -74,9 +86,12 @@ def main(args):
             sigma_Gaussian=args.sigma_Gaussian,
             offset_BB=args.offset_BB,
             scale_BB=args.scale_BB)
+        
+        valid_sampler = DistributedSampler(dataset_Validation)
 
         dataloader_Validation = torch.utils.data.DataLoader(
             dataset_Validation,
+            sampler=valid_sampler,  # 分布式sampler
             batch_size=args.batch_size,
             shuffle=False,
             num_workers=args.max_num_worker,
@@ -100,8 +115,8 @@ def main(args):
             pin_memory=True)
 
     # define criterions
-    criterion_tracking = torch.nn.MSELoss() # 余弦相似度+距离的阈值函数，外面再套一个MSELoss
-    criterion_completion = ChamferLoss() # 倒角距离，衡量3D点云数据的Loss
+    criterion_tracking = torch.nn.MSELoss().to(device) # 余弦相似度+距离的阈值函数，外面再套一个MSELoss
+    criterion_completion = ChamferLoss().to(device) # 倒角距离，衡量3D点云数据的Loss
 
     # define optimizer
     optimizer = torch.optim.Adam(
@@ -120,6 +135,9 @@ def main(args):
         trainer(
             dataloader_Training,
             dataloader_Validation,
+            train_sampler,
+            valid_sampler,
+            device,
             model,
             optimizer,
             scheduler,
@@ -321,7 +339,16 @@ if __name__ == '__main__':
         default=os.path.join("..", "models", "Pretrain_ShapeNet"),
         help='pre-trained model')
 
+    # 分布式训练
+    parser.add_argument(
+        "--local_rank", default=0, type=int
+    )
+
     args = parser.parse_args()
+
+    dist.init_process_group(backend='nccl')
+    dist.barrier()
+    world_size = dist.get_world_size()
 
     numeric_level = getattr(logging, args.loglevel.upper(), None)
     if not isinstance(numeric_level, int):
